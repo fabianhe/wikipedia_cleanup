@@ -20,6 +20,7 @@ class PropertyCorrelationPredictor(CachedPredictor):
         num_required_changes: int = 5,
         max_allowed_properties: int = 53,
         percent_allowed_mismatch: float = 0.05,
+        use_num_changes: bool = False,
     ) -> None:
         super().__init__(use_cache)
         self.related_properties_lookup: dict = {}
@@ -33,6 +34,7 @@ class PropertyCorrelationPredictor(CachedPredictor):
 
         # TODO justify choice
         self.delay_range = allowed_change_delay
+        self.use_num_changes = use_num_changes
 
     @staticmethod
     def _get_links(train_data: pd.DataFrame) -> Dict[str, List[str]]:
@@ -57,7 +59,17 @@ class PropertyCorrelationPredictor(CachedPredictor):
         return related_page_index
 
     @staticmethod
-    def _create_time_series(a: Any, duration: int) -> csr_matrix:
+    def _create_num_changes_time_series(
+        bin_idx_and_num_changes: Any, duration: int
+    ) -> csr_matrix:
+        num_changes = np.array(bin_idx_and_num_changes["num_changes"])
+        positions = np.array(bin_idx_and_num_changes["bin_idx"])
+        series = np.zeros(duration)
+        series[positions] = num_changes
+        return csr_matrix(series)
+
+    @staticmethod
+    def _create_binary_time_series(a: Any, duration: int) -> csr_matrix:
         series = np.zeros(duration)
         uniques, counts = np.unique(a, return_counts=True)
         series[uniques] = counts
@@ -71,16 +83,25 @@ class PropertyCorrelationPredictor(CachedPredictor):
             train_data["value_valid_from"].max().date() + timedelta(1),
         )
         total_days = len(bins)
-        bins = pd.cut(train_data["value_valid_from"], bins, labels=False)
+        bins = pd.cut(train_data["value_valid_from"], bins, labels=False, right=False)
         train_data["bin_idx"] = bins
 
         groups = train_data.groupby(keys)
         min_support_groups = train_data[
             groups["bin_idx"].transform("count") > self.NUM_REQUIRED_CHANGES
         ].groupby(list(set(["page_title"] + keys)))
-        min_support_groups = min_support_groups["bin_idx"].apply(
-            PropertyCorrelationPredictor._create_time_series, duration=total_days
-        )
+
+        if self.use_num_changes:
+            min_support_groups = min_support_groups.apply(
+                PropertyCorrelationPredictor._create_num_changes_time_series,
+                duration=total_days,
+            )
+            min_support_groups.rename("bin_idx", inplace=True)
+        else:
+            min_support_groups = min_support_groups["bin_idx"].apply(
+                PropertyCorrelationPredictor._create_binary_time_series,
+                duration=total_days,
+            )
         return min_support_groups
 
     def _load_cache_file(self, file_object: Any) -> bool:
@@ -232,7 +253,8 @@ class PropertyCorrelationPredictor(CachedPredictor):
             super()._calculate_dependent_cache_name(data)
             + f"{self.NUM_REQUIRED_CHANGES},\n"
             f"{self.MAX_ALLOWED_PROPERTIES},\n"
-            f"{self.delay_range}"
+            f"{self.delay_range},\n"
+            f"{self.use_num_changes}"
         )
         return hash_string
 
@@ -266,6 +288,7 @@ class PropertyCorrelationPredictor(CachedPredictor):
             "property_name",
             "value_valid_from",
             "current_value",
+            "num_changes",
         ]
 
     def get_relevant_ids(self, identifier: Tuple) -> List[Tuple]:

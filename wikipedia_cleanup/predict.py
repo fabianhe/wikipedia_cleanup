@@ -13,7 +13,6 @@ from tqdm.auto import tqdm
 
 from wikipedia_cleanup.data_filter import (
     AbstractDataFilter,
-    FeatureAdderFilter,
     KeepAttributesDataFilter,
     StaticInfoboxTemplateDataAdder,
 )
@@ -407,15 +406,15 @@ if __name__ == "__main__":
     n_files = 2
     n_jobs = 4
     input_path = Path(
-        "/run/media/secret/manjaro-home/secret/mp-data/custom-format-default-filtered"
+        "/run/media/secret/manjaro-home/secret/mp-data/new_costum_filtered_format"
     )
-    input_path = Path("../../data/custom-format-default-filtered")
+    # input_path = Path("../../data/custom-format-default-filtered")
 
     model1 = PropertyCorrelationPredictor()
     model2 = RandomForestPredictor()
-    framework = TrainAndPredictFramework(model2, ["infobox_key", "property_name"])
+    framework = TrainAndPredictFramework(model1, ["infobox_key", "property_name"])
     # framework = TrainAndPredictFramework(model, ["page_id"])
-    framework.load_data(input_path, n_files, n_jobs, [FeatureAdderFilter()])
+    framework.load_data(input_path, n_files, n_jobs)
     framework.fit_model()
     framework.test_model(predict_subset=0.1)
     framework.generate_plots()
